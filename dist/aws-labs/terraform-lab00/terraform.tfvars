@@ -1,0 +1,6 @@
+aws_region          = "us-east-1"
+instance_name       = "lab00-ec2"
+instance_type       = "t3.micro"
+key_name            = "lab00-key"
+security_group_name = "lab00-ssh-sg"
+ssh_cidr            = "0.0.0.0/0"
