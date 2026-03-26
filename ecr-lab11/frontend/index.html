@@ -135,6 +135,61 @@
         gap: 0.65rem;
       }
 
+      .chart-grid {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 0.65rem;
+        margin-bottom: 0.8rem;
+      }
+
+      .chart-card {
+        border: 1px solid #d8cfbf;
+        border-radius: 12px;
+        padding: 0.65rem;
+        background: linear-gradient(180deg, #fffefb, #f8f1e5);
+      }
+
+      .chart-title {
+        margin: 0 0 0.4rem;
+        font-size: 0.95rem;
+      }
+
+      .trend-svg {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+
+      .bars {
+        display: grid;
+        gap: 0.45rem;
+      }
+
+      .bar-row {
+        display: grid;
+        gap: 0.25rem;
+      }
+
+      .bar-head {
+        display: flex;
+        justify-content: space-between;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+
+      .bar-track {
+        height: 8px;
+        border-radius: 999px;
+        background: #e7dece;
+        overflow: hidden;
+      }
+
+      .bar-fill {
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #0b7fab, #2a8d62);
+      }
+
       .event-card {
         border: 1px solid #d8cfbf;
         border-radius: 12px;
@@ -207,6 +262,10 @@
         .toolbar {
           grid-template-columns: 1fr;
         }
+
+        .chart-grid {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
   </head>
@@ -238,6 +297,17 @@
             </select>
             <button id="refresh">Refresh</button>
           </div>
+          <div class="chart-grid">
+            <section class="chart-card">
+              <h3 class="chart-title">Occupancy Trend</h3>
+              <svg id="trendChart" class="trend-svg" viewBox="0 0 640 200" role="img" aria-label="Occupancy trend chart"></svg>
+              <p id="trendCaption" class="hint">Trend updates based on current filters.</p>
+            </section>
+            <section class="chart-card">
+              <h3 class="chart-title">Occupancy by Category</h3>
+              <div id="categoryBars" class="bars"></div>
+            </section>
+          </div>
           <div id="events" class="events"></div>
           <p class="status" id="status"></p>
         </article>
@@ -267,11 +337,29 @@
       const nodes = {
         events: document.getElementById('events'),
         status: document.getElementById('status'),
+        trendChart: document.getElementById('trendChart'),
+        trendCaption: document.getElementById('trendCaption'),
+        categoryBars: document.getElementById('categoryBars'),
         statEvents: document.getElementById('stat-events'),
         statSeatsTotal: document.getElementById('stat-seats-total'),
         statSeatsTaken: document.getElementById('stat-seats-taken'),
         statOccupancy: document.getElementById('stat-occupancy')
       };
+
+      function occupancyPercent(event) {
+        if (!event.seats_total) return 0;
+        const pct = Math.round((event.seats_taken / event.seats_total) * 100);
+        return Math.max(0, Math.min(100, pct));
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
 
       function renderEvents(list) {
         if (!list.length) {
@@ -281,9 +369,7 @@
 
         nodes.events.innerHTML = list
           .map((event) => {
-            const occupancy = event.seats_total
-              ? Math.round((event.seats_taken / event.seats_total) * 100)
-              : 0;
+            const occupancy = occupancyPercent(event);
             return `
               <article class="event-card">
                 <div class="event-top">
@@ -296,6 +382,91 @@
               </article>
             `;
           })
+          .join('');
+      }
+
+      function renderTrendChart(events) {
+        if (!events.length) {
+          nodes.trendChart.innerHTML = '<text x="20" y="40" fill="#6a6a6a">No data for trend chart.</text>';
+          nodes.trendCaption.textContent = 'Add events or widen your filters to visualize trend.';
+          return;
+        }
+
+        const sorted = [...events].sort((a, b) => new Date(a.date) - new Date(b.date));
+        const width = 640;
+        const height = 200;
+        const pad = 24;
+        const innerW = width - pad * 2;
+        const innerH = height - pad * 2;
+        const step = sorted.length > 1 ? innerW / (sorted.length - 1) : 0;
+
+        const points = sorted.map((event, index) => {
+          const occ = occupancyPercent(event);
+          const x = sorted.length > 1 ? pad + index * step : width / 2;
+          const y = pad + ((100 - occ) / 100) * innerH;
+          return { x, y, occ, date: event.date };
+        });
+
+        const polyline = points.map((p) => `${p.x},${p.y}`).join(' ');
+        const area = `${pad},${height - pad} ${polyline} ${pad + innerW},${height - pad}`;
+        const circles = points
+          .map((p) => `<circle cx="${p.x}" cy="${p.y}" r="4" fill="#0b7fab"><title>${escapeHtml(p.date)}: ${p.occ}%</title></circle>`)
+          .join('');
+        const grid = [0, 25, 50, 75, 100]
+          .map((pct) => {
+            const y = pad + ((100 - pct) / 100) * innerH;
+            return `<line x1="${pad}" y1="${y}" x2="${pad + innerW}" y2="${y}" stroke="#e4dac8" stroke-width="1" />`;
+          })
+          .join('');
+
+        nodes.trendChart.innerHTML = `
+          <defs>
+            <linearGradient id="trendArea" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-color="#0b7fab" stop-opacity="0.3" />
+              <stop offset="100%" stop-color="#0b7fab" stop-opacity="0.03" />
+            </linearGradient>
+          </defs>
+          ${grid}
+          <polygon points="${area}" fill="url(#trendArea)" />
+          <polyline points="${polyline}" fill="none" stroke="#0b7fab" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+          ${circles}
+        `;
+
+        const first = points[0];
+        const last = points[points.length - 1];
+        nodes.trendCaption.textContent = `From ${first.occ}% to ${last.occ}% across ${points.length} event(s)`;
+      }
+
+      function renderCategoryBars(events) {
+        if (!events.length) {
+          nodes.categoryBars.innerHTML = '<p class="hint">No category data to chart.</p>';
+          return;
+        }
+
+        const groups = events.reduce((acc, event) => {
+          const key = event.category || 'General';
+          if (!acc[key]) acc[key] = { taken: 0, total: 0 };
+          acc[key].taken += Number(event.seats_taken || 0);
+          acc[key].total += Number(event.seats_total || 0);
+          return acc;
+        }, {});
+
+        const rows = Object.entries(groups)
+          .map(([category, totals]) => {
+            const pct = totals.total ? Math.round((totals.taken / totals.total) * 100) : 0;
+            return { category, pct };
+          })
+          .sort((a, b) => b.pct - a.pct);
+
+        nodes.categoryBars.innerHTML = rows
+          .map(
+            (row) => `
+              <div class="bar-row">
+                <div class="bar-head"><span>${escapeHtml(row.category)}</span><strong>${row.pct}%</strong></div>
+                <div class="bar-track"><div class="bar-fill" style="width:${row.pct}%"></div></div>
+              </div>
+            `
+          )
           .join('');
       }
 
@@ -321,6 +492,8 @@
           const res = await fetch(url);
           const events = await res.json();
           renderEvents(events);
+          renderTrendChart(events);
+          renderCategoryBars(events);
           await loadStats();
           nodes.status.textContent = `Loaded ${events.length} event(s)`;
         } catch (err) {
