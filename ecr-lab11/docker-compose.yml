@@ -1,0 +1,36 @@
+services:
+  backend:
+    build: ./backend
+    container_name: fullstack-backend
+    environment:
+      - PORT=3000
+      - USE_DB=true
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=appuser
+      - DB_PASSWORD=appsecret
+      - DB_NAME=appdb
+    depends_on:
+      - db
+
+  frontend:
+    build: ./frontend
+    container_name: fullstack-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+  db:
+    image: postgres:16-alpine
+    container_name: fullstack-db
+    environment:
+      - POSTGRES_DB=appdb
+      - POSTGRES_USER=appuser
+      - POSTGRES_PASSWORD=appsecret
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
